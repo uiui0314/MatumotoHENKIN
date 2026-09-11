@@ -183,8 +183,9 @@ function summary(target){
 function history(target){
   const arr=[...db.events].sort((a,b)=>b.date.localeCompare(a.date));
   if(!arr.length){$(target).innerHTML="<p class=small>履歴はありません。</p>";return}
-  $(target).innerHTML="<table><tr><th>日付</th><th>内容</th><th>金額</th></tr>"+
-    arr.map(e=>`<tr><td>${esc(e.date)}</td><td>${esc(typeName(e.type))}</td><td>${yen(e.amount)}</td></tr>`).join("")+
+  const admin = target === "adminHistory";
+  $(target).innerHTML="<table><tr><th>日付</th><th>内容</th><th>金額</th>"+(admin?"<th>操作</th>":"")+"</tr>"+
+    arr.map(e=>`<tr id="event-row-${e.id}"><td>${esc(e.date)}</td><td>${esc(typeName(e.type))}</td><td>${yen(e.amount)}</td>${admin?`<td style="white-space:nowrap"><button type="button" onclick="editEvent(${e.id})">編集</button> <button type="button" onclick="deleteEvent(${e.id})">削除</button></td>`:""}</tr>`).join("")+
     "</table>";
 }
 
@@ -258,6 +259,62 @@ async function createLoan(){
   }catch(e){
     console.error(e);
     alert("登録に失敗しました。\n"+e.message);
+  }
+}
+
+async function editEvent(id){
+  const e=db.events.find(x=>Number(x.id)===Number(id));
+  if(!e)return alert("履歴が見つかりません。");
+
+  const date=prompt("日付を入力してください（YYYY-MM-DD）",e.date);
+  if(date===null)return;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date))return alert("日付は YYYY-MM-DD 形式で入力してください。");
+  if(date<db.loan.start_date)return alert("開始日より前の日付にはできません。");
+  if(date>today())return alert("未来の日付は登録できません。");
+
+  const amountText=prompt("金額を入力してください",String(Math.round(Number(e.amount))));
+  if(amountText===null)return;
+  const amount=Number(amountText);
+  if(!(amount>0))return alert("金額は1円以上で入力してください。");
+
+  const typeText=prompt("種類を番号で入力してください。\n1: 元金追加\n2: 利息返済\n3: 元金返済\n4: 通常返済（利息→元金）\n5: 利息追加",String({add_principal:1,pay_interest:2,pay_principal:3,pay_both:4,add_interest:5}[e.type]||1));
+  if(typeText===null)return;
+  const typeMap={1:"add_principal",2:"pay_interest",3:"pay_principal",4:"pay_both",5:"add_interest"};
+  const type=typeMap[Number(typeText)];
+  if(!type)return alert("種類は1〜5で入力してください。");
+
+  try{
+    const r=await api("loan_events?id=eq."+encodeURIComponent(id),{
+      method:"PATCH",
+      headers:{"Prefer":"return=representation"},
+      body:JSON.stringify({date,amount,type})
+    });
+    if(!r.ok)throw new Error(await r.text());
+    const rows=await r.json();
+    const updated=rows[0]||{...e,date,amount,type};
+    db.events=db.events.map(x=>Number(x.id)===Number(id)?updated:x);
+    render();
+    alert("履歴を訂正しました。");
+  }catch(err){
+    console.error(err);
+    alert("訂正に失敗しました。\n"+err.message);
+  }
+}
+
+async function deleteEvent(id){
+  const e=db.events.find(x=>Number(x.id)===Number(id));
+  if(!e)return alert("履歴が見つかりません。");
+  if(!confirm(`${e.date} の「${typeName(e.type)}」${yen(e.amount)}を削除しますか？\n削除すると残高・利息も再計算されます。`))return;
+
+  try{
+    const r=await api("loan_events?id=eq."+encodeURIComponent(id),{method:"DELETE"});
+    if(!r.ok)throw new Error(await r.text());
+    db.events=db.events.filter(x=>Number(x.id)!==Number(id));
+    render();
+    alert("履歴を削除しました。");
+  }catch(err){
+    console.error(err);
+    alert("削除に失敗しました。\n"+err.message);
   }
 }
 
