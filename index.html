@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>貸金管理・共有ページ</title><style>
+*{box-sizing:border-box}body{margin:0;background:#f5f6f8;color:#20242a;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+header{background:#20242a;color:#fff;padding:16px}.wrap{max-width:1000px;margin:auto;padding:16px}
+section,.stat{background:#fff;border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 2px 10px #0001}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.stat .label{font-size:12px;color:#777}.num{font-size:23px;font-weight:700;margin-top:4px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:end}.field{flex:1;min-width:150px}label{display:block;font-size:12px;color:#666;margin-bottom:4px}
+input,select,button{font:inherit;padding:10px;border-radius:8px;border:1px solid #d5d9de;width:100%}button{background:#20242a;color:#fff;border:0;cursor:pointer;font-weight:600}
+button.secondary{background:#e9ecf0;color:#222}.url{padding:12px;background:#eef7ff;border:1px solid #b9dbff;border-radius:8px;word-break:break-all}
+table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:9px 5px;border-bottom:1px solid #eee}.red{color:#b42318}.muted{color:#777;font-size:12px}
+nav{display:flex;gap:8px;margin-bottom:14px}nav button{flex:1}@media(max-width:700px){.grid{grid-template-columns:1fr 1fr}.wrap{padding:10px}}
+</style></head><body><header><div class=wrap style="padding:0"><b>💴 貸金管理</b></div></header><main class=wrap>
+<div id=app></div></main>
+<script>
+const SUPABASE_URL="https://ygcjhkxyqieiztdhnnx.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY="sb_publishable_UEyK28qvXo9p2clSlT-pGg_pGdJAjRj";
+const qs=new URLSearchParams(location.search), viewId=qs.get("view");
+const fmt=n=>new Intl.NumberFormat("ja-JP",{style:"currency",currency:"JPY",maximumFractionDigits:0}).format(Math.round(n));
+const today=()=>new Date().toISOString().slice(0,10);
+function days(a,b){return Math.max(0,Math.floor((new Date(b+"T00:00")-new Date(a+"T00:00"))/86400000))}
+let loan=null, events=[];
+async function api(path,opt={}){
+ const r=await fetch(SUPABASE_URL+"/rest/v1/"+path,{...opt,headers:{apikey:SUPABASE_PUBLISHABLE_KEY,Authorization:"Bearer "+SUPABASE_PUBLISHABLE_KEY,"Content-Type":"application/json",...(opt.headers||{})}});
+ if(!r.ok) throw new Error(await r.text()); return r.status===204?null:r.json();
+}
+async function load(){
+ if(SUPABASE_URL.startsWith("YOUR_")) return;
+ if(viewId){let a=await api("loans?select=*&public_id=eq."+encodeURIComponent(viewId));loan=a[0]; if(loan){events=await api("loan_events?select=*&loan_id=eq."+loan.id+"&order=date.asc,created_at.asc")}}
+ else {let id=localStorage.getItem("loan_id"); if(id){let a=await api("loans?select=*&id=eq."+id);loan=a[0]; if(loan)events=await api("loan_events?select=*&loan_id=eq."+loan.id+"&order=date.asc,created_at.asc")}}
+ render();
+}
+function state(){if(!loan)return{p:0,i:0};let p=Number(loan.principal),i=0,cur=loan.start_date;
+ for(const e of events){i+=p*.001*days(cur,e.date);let x=Number(e.amount);
+ if(e.type==="add_principal")p+=x; else if(e.type==="add_interest")i+=x; else if(e.type==="pay_interest")i=Math.max(0,i-x); else if(e.type==="pay_principal")p=Math.max(0,p-x); else {let q=Math.min(i,x);i-=q;x-=q;p=Math.max(0,p-x)} cur=e.date}
+ i+=p*.001*days(cur,today());return{p,i,total:p+i,daily:p*.001}}
+function typeName(t){return({add_principal:"元金追加",add_interest:"利息追加",pay_interest:"利息返済",pay_principal:"元金返済",pay_both:"通常返済（利息→元金）"})[t]}
+function summary(s){return `<div class=grid><div class=stat><div class=label>元金</div><div class=num>${fmt(s.p)}</div></div><div class=stat><div class=label>未払い利息</div><div class="num red">${fmt(s.i)}</div></div><div class=stat><div class=label>総残高</div><div class=num>${fmt(s.total)}</div></div><div class=stat><div class=label>1日利息</div><div class=num>${fmt(s.daily)}</div></div></div>`}
+function history(){return events.length?`<table><tr><th>日付</th><th>内容</th><th>金額</th></tr>${[...events].reverse().map(e=>`<tr><td>${e.date}</td><td>${typeName(e.type)}</td><td>${fmt(e.amount)}</td></tr>`).join("")}</table>`:"<p class=muted>履歴はありません。</p>"}
+function render(){
+ const a=document.getElementById("app");
+ if(!loan){a.innerHTML=`<section><h2>貸金管理を開始</h2><div class=row><div class=field><label>初回元金</label><input id=principal type=number min=1 placeholder=100000></div><div class=field><label>開始日</label><input id=start type=date value=${today()}></div><div style="min-width:140px"><button onclick=createLoan>作成</button></div></div><p class=muted>利息は1日・1,000円につき1円です。</p></section>`;return}
+ const s=state();
+ if(viewId){a.innerHTML=`<section><h2>借金状況</h2>${summary(s)}<p class=muted>閲覧専用ページです。最終確認日：${today()}</p></section><section><h2>履歴</h2>${history()}</section>`}
+ else {a.innerHTML=`<nav><button onclick=location.href=location.pathname>管理</button><button class=secondary onclick=copyLink()>友達用URLをコピー</button></nav><section><h2>現在の状況</h2>${summary(s)}</section><section><h2>追加・返済を記録</h2><div class=row><div class=field><label>日付</label><input id=date type=date value=${today()}></div><div class=field><label>金額</label><input id=amount type=number min=1></div><div class=field><label>種類</label><select id=type><option value=add_principal>元金を追加</option><option value=add_interest>利息を追加</option><option value=pay_interest>利息だけ返済</option><option value=pay_principal>元金だけ返済</option><option value=pay_both>利息→元金で返済</option></select></div><div style="min-width:150px"><button onclick=addEvent>記録する</button></div></div></section><section><h2>友達用URL</h2><div class=url id=share>${location.origin+location.pathname+"?view="+loan.public_id}</div><button style="margin-top:8px" onclick=copyLink>URLをコピー</button></section><section><h2>履歴</h2>${history()}</section>`}
+}
+async function createLoan(){let p=Number(document.getElementById("principal").value),d=document.getElementById("start").value;if(!(p>0))return alert("元金を入力してください");let id=crypto.randomUUID();let public_id=crypto.randomUUID().replaceAll("-","").slice(0,16);let r=await api("loans",{method:"POST",headers:{Prefer:"return=representation"},body:JSON.stringify({id,public_id,principal:p,start_date:d})});loan=r[0];events=[];localStorage.setItem("loan_id",id);render()}
+async function addEvent(){let e={loan_id:loan.id,date:document.getElementById("date").value,amount:Number(document.getElementById("amount").value),type:document.getElementById("type").value};if(!(e.amount>0))return alert("金額を入力してください");await api("loan_events",{method:"POST",body:JSON.stringify(e)});events.push(e);render()}
+function copyLink(){navigator.clipboard.writeText(location.origin+location.pathname+"?view="+loan.public_id).then(()=>alert("友達用URLをコピーしました"))}
+load().catch(e=>alert("接続エラー："+e.message));
+</script></body></html>
