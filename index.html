@@ -396,10 +396,27 @@ async function init(){
 
   const saved=localStorage.getItem("loan_manager_loan_id");
   if(saved){
-    try{await loadLoan(saved)}
-    catch(e){console.error(e);render();}
+    try{
+      await loadLoan(saved);
+      // 保存されていた古い借金データに履歴がない場合は、最新の借金データを確認
+      if(!db.events.length){
+        const latest=await api("loans?select=*&order=created_at.desc&limit=1");
+        if(latest.length && latest[0].id!==db.loan.id){
+          await loadLoan(latest[0].id);
+        }
+      }
+    }catch(e){
+      console.error(e);
+      try{
+        const latest=await api("loans?select=*&order=created_at.desc&limit=1");
+        if(latest.length) await loadLoan(latest[0].id); else render();
+      }catch(e2){console.error(e2);render();}
+    }
   }else{
-    render();
+    try{
+      const latest=await api("loans?select=*&order=created_at.desc&limit=1");
+      if(latest.length) await loadLoan(latest[0].id); else render();
+    }catch(e){console.error(e);render();}
   }
 }
 
