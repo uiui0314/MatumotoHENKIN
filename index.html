@@ -398,9 +398,15 @@ async function init(){
   // 管理画面はSupabaseの最新の借金データを読み込む。
   // 以前の端末に残っている古いloan_idがあっても、今回移行した最新データを優先する。
   try{
-    const latest=await api("loans?select=*&order=created_at.desc&limit=1");
+    const latestResponse=await api("loans?select=*&order=created_at.desc&limit=1");
+    if(!latestResponse.ok) throw new Error(await latestResponse.text());
+    const latest=await latestResponse.json();
     if(latest.length) await loadLoan(latest[0].id); else render();
-  }catch(e){console.error(e);render();}
+  }catch(e){
+    console.error(e);
+    $("adminSummary").innerHTML="<p class=small>データの読み込みに失敗しました。\n"+esc(e.message)+"</p>";
+    $("adminHistory").innerHTML="";
+  }
 }
 
 init();
