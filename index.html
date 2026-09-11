@@ -348,6 +348,7 @@ async function loadLoan(id){
   const rows=await r.json();
   if(!rows.length)throw new Error("借金データが見つかりません。");
   db.loan=rows[0];
+  localStorage.setItem("loan_manager_loan_id", db.loan.id);
 
   const er=await api("loan_events?loan_id=eq."+encodeURIComponent(db.loan.id)+"&select=*&order=date.asc");
   if(!er.ok)throw new Error(await er.text());
@@ -394,30 +395,12 @@ async function init(){
     return;
   }
 
-  const saved=localStorage.getItem("loan_manager_loan_id");
-  if(saved){
-    try{
-      await loadLoan(saved);
-      // 保存されていた古い借金データに履歴がない場合は、最新の借金データを確認
-      if(!db.events.length){
-        const latest=await api("loans?select=*&order=created_at.desc&limit=1");
-        if(latest.length && latest[0].id!==db.loan.id){
-          await loadLoan(latest[0].id);
-        }
-      }
-    }catch(e){
-      console.error(e);
-      try{
-        const latest=await api("loans?select=*&order=created_at.desc&limit=1");
-        if(latest.length) await loadLoan(latest[0].id); else render();
-      }catch(e2){console.error(e2);render();}
-    }
-  }else{
-    try{
-      const latest=await api("loans?select=*&order=created_at.desc&limit=1");
-      if(latest.length) await loadLoan(latest[0].id); else render();
-    }catch(e){console.error(e);render();}
-  }
+  // 管理画面はSupabaseの最新の借金データを読み込む。
+  // 以前の端末に残っている古いloan_idがあっても、今回移行した最新データを優先する。
+  try{
+    const latest=await api("loans?select=*&order=created_at.desc&limit=1");
+    if(latest.length) await loadLoan(latest[0].id); else render();
+  }catch(e){console.error(e);render();}
 }
 
 init();
